@@ -18,12 +18,26 @@ use strict;
 
 use IO::Socket;
 use IO::Select;
+use Getopt::Long qw(:config no_ignore_case);
 
+my $dest_host = 'localhost';
+my $dest_port = 55555;
+my $local_port = 1080;
+my $local_host = '0.0.0.0';
 my @allowed_ips = ('1.2.3.4', '5.6.7.8', '127.0.0.1', '192.168.1.2');
 my $ioset = IO::Select->new;
 my %socket_map;
 
-my $debug = 1;
+my $debug = 0;
+
+GetOptions(
+    "dest-host|h=s" => \$dest_host,
+    "dest-port|p=s" => \$dest_port,
+    "local-host|H=s" => \$local_host,
+    "local-port|P=s" => \$local_port,
+    "allowed|i=s" => \@allowed_ips,
+    "debug|d!" => \$debug,
+);
 
 sub new_conn {
     my ($host, $port) = @_;
@@ -55,7 +69,7 @@ sub new_connection {
     }
     print "Connection from $client_ip accepted.\n" if $debug;
 
-    my $remote = new_conn('localhost', 55555);
+    my $remote = new_conn($dest_host, $dest_port);
     $ioset->add($client);
     $ioset->add($remote);
 
@@ -91,8 +105,9 @@ sub client_allowed {
     return grep { $_ eq $client_ip } @allowed_ips;
 }
 
-print "Starting a server on 0.0.0.0:1080\n";
-my $server = new_server('0.0.0.0', 1080);
+print "Starting a server on $local_host:$local_port ";
+print "(proxy to $dest_host:$dest_port)\n";
+my $server = new_server($local_host, $local_port);
 $ioset->add($server);
 
 while (1) {
