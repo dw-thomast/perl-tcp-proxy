@@ -6,7 +6,7 @@ LINKTYPE="static" #allow-dynamic"
 RC_FILE=${HOME}/.staticperlrc
 SP_FILE=${HOME}/staticperl
 BOOT_FILE="tcp-proxy.pl"
-
+ARCH=$(uname -m)
 
 if [ -f ${RC_FILE} ]; then
         . ${RC_FILE}
@@ -15,6 +15,7 @@ else
         exit 1
 fi
 
+${SP_FILE} perl -c tcp-proxy.pl || exit 1
 
 ${SP_FILE} mkapp $APPNAME --boot ${BOOT_FILE} \
 -MGetopt::Long \
@@ -24,3 +25,6 @@ ${SP_FILE} mkapp $APPNAME --boot ${BOOT_FILE} \
 --${LINKTYPE} \
 --usepacklists \
 $@
+
+upx -9 ${APPNAME}
+mv ${APPNAME} bin/${APPNAME}_${ARCH:-unknown}
