@@ -28,6 +28,7 @@ my $rbuffsize = 32 * 1024;
 my @allowed_ips = ( '127.0.0.1' );
 my $ioset = IO::Select->new;
 my %socket_map;
+my %allowed;
 
 my $debug = 0;
 
@@ -62,7 +63,7 @@ sub new_server {
 sub new_connection {
     my $server = shift;
     my $client = $server->accept or return;
-    my $client_ip = client_ip($client);
+    my $client_ip = client_ip($client) or return;
 
     unless (client_allowed($client)) {
         print "Connection from $client_ip denied.\n" if $debug;
@@ -85,11 +86,11 @@ sub new_connection {
 sub close_connection {
     my $client = shift;
     my $remote = $socket_map{$client};
-    my $client_ip = client_ip($remote);
+    my $client_ip = client_ip($remote) || '<unknown>';
 
     if ($client_ip eq $dest_host) {
         # local connection closed
-        $client_ip = client_ip($client);
+        $client_ip = client_ip($client) || '<unknown>';
     }
    
     $ioset->remove($client);
@@ -106,17 +107,19 @@ sub close_connection {
 
 sub client_ip {
     my $client = shift;
-    return inet_ntoa($client->peeraddr);
+    my $addr = $client->peeraddr or return;
+    return inet_ntoa($addr);
 }
 
 sub client_allowed {
     my $client = shift;
-    my $client_ip = client_ip($client);
-    return grep { $_ eq $client_ip } @allowed_ips;
+    my $client_ip = client_ip($client) or return;
+    return exists $allowed{ $client_ip };
 }
 
 print "Starting a server on $local_host:$local_port ";
 print "(proxy to $dest_host:$dest_port)\n";
+%allowed = map { +"$_" => 1 } @allowed_ips;
 my $server = new_server($local_host, $local_port);
 $ioset->add($server);
 
