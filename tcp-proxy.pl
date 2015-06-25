@@ -20,11 +20,12 @@ use IO::Socket;
 use IO::Select;
 use Getopt::Long qw(:config no_ignore_case);
 
-my $dest_host = 'localhost';
+my $dest_host = '127.0.0.1';
 my $dest_port = 55555;
 my $local_port = 1080;
 my $local_host = '0.0.0.0';
-my @allowed_ips = ('1.2.3.4', '5.6.7.8', '127.0.0.1', '192.168.1.2');
+my $rbuffsize = 32 * 1024;
+my @allowed_ips = ( '127.0.0.1' );
 my $ioset = IO::Select->new;
 my %socket_map;
 
@@ -37,6 +38,7 @@ GetOptions(
     "local-port|P=s" => \$local_port,
     "allowed|i=s" => \@allowed_ips,
     "debug|d!" => \$debug,
+    "read-buffer|r=s", \$rbuffsize,
 );
 
 sub new_conn {
@@ -59,7 +61,7 @@ sub new_server {
 
 sub new_connection {
     my $server = shift;
-    my $client = $server->accept;
+    my $client = $server->accept or return;
     my $client_ip = client_ip($client);
 
     unless (client_allowed($client)) {
@@ -70,18 +72,26 @@ sub new_connection {
     print "Connection from $client_ip accepted.\n" if $debug;
 
     my $remote = new_conn($dest_host, $dest_port);
+
     $ioset->add($client);
     $ioset->add($remote);
 
     $socket_map{$client} = $remote;
     $socket_map{$remote} = $client;
+
+    0
 }
 
 sub close_connection {
     my $client = shift;
-    my $client_ip = client_ip($client);
     my $remote = $socket_map{$client};
-    
+    my $client_ip = client_ip($remote);
+
+    if ($client_ip eq $dest_host) {
+        # local connection closed
+        $client_ip = client_ip($client);
+    }
+   
     $ioset->remove($client);
     $ioset->remove($remote);
 
@@ -96,7 +106,7 @@ sub close_connection {
 
 sub client_ip {
     my $client = shift;
-    return inet_ntoa($client->sockaddr);
+    return inet_ntoa($client->peeraddr);
 }
 
 sub client_allowed {
@@ -118,8 +128,7 @@ while (1) {
         else {
             next unless exists $socket_map{$socket};
             my $remote = $socket_map{$socket};
-            my $buffer;
-            my $read = $socket->sysread($buffer, 4096);
+            my $read = $socket->sysread(my $buffer, $rbuffsize);
             if ($read) {
                 $remote->syswrite($buffer);
             }
