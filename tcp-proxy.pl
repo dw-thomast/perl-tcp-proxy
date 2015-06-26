@@ -30,7 +30,6 @@ my $queue = 100;
 my $ioset = IO::Select->new;
 my %socket_map;
 my %allowed;
-
 my $debug = 0;
 
 GetOptions(
@@ -65,11 +64,12 @@ sub new_server {
 sub new_connection {
     my $server = shift;
     my $client = $server->accept() or return;
-    my $client_ip = client_ip( $client ) or return;
+    my $client_addr = $client->peeraddr() or return;
+    my $client_ip = inet_ntoa( $client_addr ) or return;
 
     unless ( client_allowed( $client ) ) {
         print "Connection from $client_ip denied.\n" if $debug;
-        $client->close;
+        $client->close();
         return;
     }
     print "Connection from $client_ip accepted.\n" if $debug;
@@ -78,44 +78,33 @@ sub new_connection {
 
     $ioset->add( $client );
     $ioset->add( $remote );
-
-    $socket_map{ $client->fileno() } = $remote;
-    $socket_map{ $remote->fileno() } = $client;
+    
+    $socket_map{ $client } = $remote;
+    $socket_map{ $remote } = $client;
 
     0
 }
 
 sub close_connection {
-    my $client = shift;
-    my $remote = $socket_map{ $client->fileno() };
-    my $client_ip = client_ip( $remote );
-
-    if ($client_ip eq $dest_host) {
-        # local connection closed
-        $client_ip = client_ip( $client );
+    my $client = shift or return;
+    
+    if ( my $remote = $socket_map{ $client } ) {
+      delete $socket_map{ $remote };
+      $ioset->remove( $remote );
+      $remote->close();
     }
-   
+
+    delete $socket_map{ $client };
     $ioset->remove( $client );
-    $ioset->remove( $remote );
-
-    delete $socket_map{ $client->fileno() };
-    delete $socket_map{ $remote->fileno() };
-
-    $client->close;
-    $remote->close;
-
-    print "Connection from $client_ip closed.\n" if $debug;
-}
-
-sub client_ip {
-    my $client = shift;
-    my $addr = $client->peeraddr or return;
-    return inet_ntoa( $addr );
+    $client->close();
+    
+    0    
 }
 
 sub client_allowed {
-    my $client = shift;
-    my $client_ip = client_ip( $client ) or return;
+    my $client = shift or return;
+    my $addr = $client->peeraddr() or return;    
+    my $client_ip = inet_ntoa( $addr ) or return;
     return exists $allowed{ $client_ip };
 }
 
@@ -127,18 +116,15 @@ $ioset->add($server);
 
 while (1) {
     for my $socket ( $ioset->can_read() ) {
-        my $fno = $socket->fileno() or $ioset->remove( $socket ), next;
-
         if ( $socket == $server ) {
             new_connection( $server );
             next;
         }
-        
-        exists $socket_map{ $fno } or next;
+
         my $read = $socket->sysread( my $buffer, $rbuffsize );
-        
+
         if ( $read ) {
-            my $remote = $socket_map{ $fno };
+            my $remote = $socket_map{ $socket };
             $remote->syswrite( $buffer );
         } else {
             close_connection( $socket );
