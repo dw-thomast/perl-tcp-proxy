@@ -64,20 +64,20 @@ sub new_server {
 
 sub new_connection {
     my $server = shift;
-    my $client = $server->accept or return;
-    my $client_ip = client_ip($client) or return;
+    my $client = $server->accept() or return;
+    my $client_ip = client_ip( $client ) or return;
 
-    unless (client_allowed($client)) {
+    unless ( client_allowed( $client ) ) {
         print "Connection from $client_ip denied.\n" if $debug;
         $client->close;
         return;
     }
     print "Connection from $client_ip accepted.\n" if $debug;
 
-    my $remote = new_conn($dest_host, $dest_port);
+    my $remote = new_conn( $dest_host, $dest_port );
 
-    $ioset->add($client);
-    $ioset->add($remote);
+    $ioset->add( $client );
+    $ioset->add( $remote );
 
     $socket_map{ $client->fileno() } = $remote;
     $socket_map{ $remote->fileno() } = $client;
@@ -88,11 +88,11 @@ sub new_connection {
 sub close_connection {
     my $client = shift;
     my $remote = $socket_map{ $client->fileno() };
-    my $client_ip = client_ip( $remote ) || '<unknown>';
+    my $client_ip = client_ip( $remote );
 
     if ($client_ip eq $dest_host) {
         # local connection closed
-        $client_ip = client_ip( $client ) || '<unknown>';
+        $client_ip = client_ip( $client );
     }
    
     $ioset->remove( $client );
@@ -110,12 +110,12 @@ sub close_connection {
 sub client_ip {
     my $client = shift;
     my $addr = $client->peeraddr or return;
-    return inet_ntoa($addr);
+    return inet_ntoa( $addr );
 }
 
 sub client_allowed {
     my $client = shift;
-    my $client_ip = client_ip($client) or return;
+    my $client_ip = client_ip( $client ) or return;
     return exists $allowed{ $client_ip };
 }
 
@@ -126,21 +126,22 @@ my $server = new_server($local_host, $local_port);
 $ioset->add($server);
 
 while (1) {
-    for my $socket ($ioset->can_read) {
-        my $fno = $socket->fileno() or next;
+    for my $socket ( $ioset->can_read() ) {
+        my $fno = $socket->fileno() or $ioset->remove( $socket ), next;
 
-        if ($socket == $server) {
-            new_connection($server);
+        if ( $socket == $server ) {
+            new_connection( $server );
             next;
         }
         
-        next unless exists $socket_map{ $fno };
-        my $remote = $socket_map{ $fno };
-        my $read = $socket->sysread(my $buffer, $rbuffsize);
-        if ($read) {
-            $remote->syswrite($buffer);
+        exists $socket_map{ $fno } or next;
+        my $read = $socket->sysread( my $buffer, $rbuffsize );
+        
+        if ( $read ) {
+            my $remote = $socket_map{ $fno };
+            $remote->syswrite( $buffer );
         } else {
-            close_connection($socket);
+            close_connection( $socket );
         }
     }
 }
