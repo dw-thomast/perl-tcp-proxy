@@ -26,6 +26,7 @@ my $local_port = 1080;
 my $local_host = '0.0.0.0';
 my $rbuffsize = 32 * 1024;
 my @allowed_ips = ( '127.0.0.1' );
+my $queue = 100;
 my $ioset = IO::Select->new;
 my %socket_map;
 my %allowed;
@@ -40,6 +41,7 @@ GetOptions(
     "allowed|i=s" => \@allowed_ips,
     "debug|d!" => \$debug,
     "read-buffer|r=s", \$rbuffsize,
+    "queue|q=i", \$queue,
 );
 
 sub new_conn {
@@ -56,7 +58,7 @@ sub new_server {
         LocalAddr => $host,
         LocalPort => $port,
         ReuseAddr => 1,
-        Listen    => 100
+        Listen    => $queue,
     ) || die "Unable to listen on $host:$port: $!";
 }
 
@@ -77,27 +79,27 @@ sub new_connection {
     $ioset->add($client);
     $ioset->add($remote);
 
-    $socket_map{$client} = $remote;
-    $socket_map{$remote} = $client;
+    $socket_map{ $client->fileno() } = $remote;
+    $socket_map{ $remote->fileno() } = $client;
 
     0
 }
 
 sub close_connection {
     my $client = shift;
-    my $remote = $socket_map{$client};
-    my $client_ip = client_ip($remote) || '<unknown>';
+    my $remote = $socket_map{ $client->fileno() };
+    my $client_ip = client_ip( $remote ) || '<unknown>';
 
     if ($client_ip eq $dest_host) {
         # local connection closed
-        $client_ip = client_ip($client) || '<unknown>';
+        $client_ip = client_ip( $client ) || '<unknown>';
     }
    
-    $ioset->remove($client);
-    $ioset->remove($remote);
+    $ioset->remove( $client );
+    $ioset->remove( $remote );
 
-    delete $socket_map{$client};
-    delete $socket_map{$remote};
+    delete $socket_map{ $client->fileno() };
+    delete $socket_map{ $remote->fileno() };
 
     $client->close;
     $remote->close;
@@ -125,19 +127,20 @@ $ioset->add($server);
 
 while (1) {
     for my $socket ($ioset->can_read) {
+        my $fno = $socket->fileno() or next;
+
         if ($socket == $server) {
             new_connection($server);
+            next;
         }
-        else {
-            next unless exists $socket_map{$socket};
-            my $remote = $socket_map{$socket};
-            my $read = $socket->sysread(my $buffer, $rbuffsize);
-            if ($read) {
-                $remote->syswrite($buffer);
-            }
-            else {
-                close_connection($socket);
-            }
+        
+        next unless exists $socket_map{ $fno };
+        my $remote = $socket_map{ $fno };
+        my $read = $socket->sysread(my $buffer, $rbuffsize);
+        if ($read) {
+            $remote->syswrite($buffer);
+        } else {
+            close_connection($socket);
         }
     }
 }

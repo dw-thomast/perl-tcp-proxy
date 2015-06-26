@@ -1,7 +1,7 @@
 #!/bin/sh
 
 APPNAME="tcp-proxy"
-STRIP="ppi" #ppi"
+STRIP="none" #ppi"
 LINKTYPE="static" #allow-dynamic"
 RC_FILE=${HOME}/.staticperlrc
 SP_FILE=${HOME}/staticperl
